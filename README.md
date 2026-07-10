@@ -43,6 +43,8 @@ API listens on `http://localhost:5130` by default (see `Properties/launchSetting
 
 Auth endpoints: `POST /api/auth/register`, `POST /api/auth/login` (both return a JWT), `GET /api/auth/me` (requires `Authorization: Bearer <token>`).
 
+To use transcript analysis, also set your Claude API key: `dotnet user-secrets set "Claude:ApiKey" "sk-ant-..." --project src/AiMeetingAssistant.Api`. Meeting endpoints: `POST /api/meetings` (analyzes a transcript), `GET /api/meetings`, `GET /api/meetings/{id}` — all require `Authorization: Bearer <token>`.
+
 ### Frontend
 
 ```
@@ -60,5 +62,5 @@ Actively being built in phases — see [docs/plan.md](docs/plan.md) for the full
 
 - [x] Phase 0: scaffold
 - [x] Phase 1: auth (ASP.NET Core Identity + JWT), app shell, login/register UI
-- [ ] Phase 2: transcript → Claude analysis → review UI
+- [x] Phase 2: transcript → Claude analysis → review UI (verified live against the Anthropic API)
 - [ ] Phase 3: settings + Jira ticket creation

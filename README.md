@@ -2,6 +2,8 @@
 
 Paste a meeting transcript, get an AI-generated summary, key decisions, and action items, and turn the ones that need follow-up into real Jira tickets.
 
+![Demo: pasting a transcript, reviewing the AI analysis, and creating real Jira tickets](docs/demo.gif)
+
 ## Screenshots
 
 | Analysis review | Meeting history |

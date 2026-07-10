@@ -70,71 +70,101 @@ public class MeetingAnalysisService(IAnthropicClient anthropicClient) : IMeeting
         PropertyNameCaseInsensitive = true,
     };
 
+    private const int MaxAttempts = 3;
+
     public async Task<MeetingAnalysisResult> AnalyzeAsync(string transcriptText, string? apiKeyOverride = null, CancellationToken cancellationToken = default)
     {
-        var toolInput = await anthropicClient.InvokeToolAsync(
-            BuildSystemPrompt(DateOnly.FromDateTime(DateTime.UtcNow)),
-            transcriptText,
-            ToolName,
-            "Records the structured analysis of a meeting transcript.",
-            InputSchema,
-            apiKeyOverride,
-            cancellationToken);
+        AnthropicApiException? lastFailure = null;
 
-        try
+        for (var attempt = 1; attempt <= MaxAttempts; attempt++)
         {
-            var normalized = NormalizeKeyDecisions(toolInput);
-            var result = normalized.Deserialize<MeetingAnalysisResult>(DeserializeOptions);
-            return result ?? throw new AnthropicApiException("Claude returned an empty analysis.");
+            var toolInput = await anthropicClient.InvokeToolAsync(
+                BuildSystemPrompt(DateOnly.FromDateTime(DateTime.UtcNow)),
+                transcriptText,
+                ToolName,
+                "Records the structured analysis of a meeting transcript.",
+                InputSchema,
+                apiKeyOverride,
+                cancellationToken);
+
+            try
+            {
+                var normalized = NormalizeKeyDecisions(toolInput);
+                var result = normalized.Deserialize<MeetingAnalysisResult>(DeserializeOptions);
+                if (result is { KeyDecisions: not null, ActionItems: not null, Summary: not null })
+                {
+                    return result;
+                }
+
+                lastFailure = new AnthropicApiException("Claude returned an incomplete analysis.");
+            }
+            catch (JsonException ex)
+            {
+                // Claude's forced tool-use output is occasionally malformed in ways too varied to
+                // defensively parse (e.g. leaked tool-call syntax inside a field). A fresh retry
+                // reliably recovers since the failure is non-deterministic model noise, not a
+                // deterministic prompt/schema bug.
+                lastFailure = new AnthropicApiException($"Claude returned an analysis in an unexpected format: {ex.Message}");
+            }
         }
-        catch (JsonException ex)
-        {
-            throw new AnthropicApiException($"Claude returned an analysis in an unexpected format: {ex.Message}");
-        }
+
+        throw lastFailure ?? new AnthropicApiException("Claude failed to return a valid analysis.");
     }
 
-    // Claude sometimes returns key_decisions as objects (e.g. { "decision": "...", "owner": "..." })
-    // instead of the plain strings the schema asks for. Flatten those so a formatting slip
-    // doesn't fail the whole analysis.
+    // Claude sometimes deviates from the requested "array of plain strings" shape for
+    // key_decisions — returning a single bare string, an array of objects, or an object of
+    // decisions instead. Normalize all of those into a flat array of strings so a formatting
+    // slip doesn't fail the whole analysis.
     private static JsonElement NormalizeKeyDecisions(JsonElement toolInput)
     {
-        var node = JsonNode.Parse(toolInput.GetRawText());
-        if (node?["key_decisions"] is not JsonArray decisions)
+        if (JsonNode.Parse(toolInput.GetRawText()) is not JsonObject node)
         {
             return toolInput;
         }
 
-        for (var i = 0; i < decisions.Count; i++)
+        var flattened = node["key_decisions"] switch
         {
-            if (decisions[i] is not JsonObject obj)
-            {
-                continue;
-            }
+            JsonArray arr => new JsonArray(arr.Select(el => (JsonNode?)JsonValue.Create(FlattenNodeToString(el))).ToArray()),
+            JsonValue value when value.TryGetValue<string>(out var s) => new JsonArray(JsonValue.Create(s)),
+            JsonObject obj => new JsonArray(obj.Select(kv => (JsonNode?)JsonValue.Create(FlattenNodeToString(kv.Value))).ToArray()),
+            _ => null,
+        };
 
-            decisions[i] = JsonValue.Create(FlattenToString(obj));
+        if (flattened is null)
+        {
+            return toolInput;
         }
 
+        node["key_decisions"] = flattened;
         return JsonSerializer.SerializeToElement(node);
     }
 
-    private static string FlattenToString(JsonObject obj)
+    private static string FlattenNodeToString(JsonNode? node)
     {
-        foreach (var key in new[] { "decision", "text", "description", "summary", "title" })
+        if (node is JsonValue value && value.TryGetValue<string>(out var s))
         {
-            if (obj[key] is JsonValue value && value.TryGetValue<string>(out var s))
+            return s;
+        }
+
+        if (node is JsonObject obj)
+        {
+            foreach (var key in new[] { "decision", "text", "description", "summary", "title" })
             {
-                return s;
+                if (obj[key] is JsonValue nested && nested.TryGetValue<string>(out var nestedString))
+                {
+                    return nestedString;
+                }
+            }
+
+            foreach (var property in obj)
+            {
+                if (property.Value is JsonValue nested && nested.TryGetValue<string>(out var nestedString))
+                {
+                    return nestedString;
+                }
             }
         }
 
-        foreach (var property in obj)
-        {
-            if (property.Value is JsonValue value && value.TryGetValue<string>(out var s))
-            {
-                return s;
-            }
-        }
-
-        return obj.ToJsonString();
+        return node?.ToJsonString() ?? "";
     }
 }

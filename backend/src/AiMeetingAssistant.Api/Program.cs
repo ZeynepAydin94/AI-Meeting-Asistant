@@ -1,5 +1,4 @@
 using System.Text;
-using AiMeetingAssistant.Api.Endpoints;
 using AiMeetingAssistant.Core.Services;
 using AiMeetingAssistant.Infrastructure.Auth;
 using AiMeetingAssistant.Infrastructure.Claude;
@@ -15,6 +14,7 @@ const string FrontendCorsPolicy = "FrontendCorsPolicy";
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
 builder.Services.AddCors(options =>
@@ -82,11 +82,6 @@ app.UseCors(FrontendCorsPolicy);
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }))
-    .WithName("HealthCheck");
-
-app.MapAuthEndpoints();
-app.MapMeetingEndpoints();
-app.MapSettingsEndpoints();
+app.MapControllers();
 
 app.Run();

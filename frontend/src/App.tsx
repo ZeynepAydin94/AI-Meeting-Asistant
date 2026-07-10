@@ -4,6 +4,7 @@ import { ProtectedRoute } from './auth/ProtectedRoute'
 import { LoginPage } from './pages/LoginPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { NewMeetingPage } from './pages/NewMeetingPage'
+import { AnalysisReviewPage } from './pages/AnalysisReviewPage'
 import { MeetingHistoryPage } from './pages/MeetingHistoryPage'
 import { SettingsPage } from './pages/SettingsPage'
 
@@ -17,6 +18,7 @@ function App() {
       <Route element={<ProtectedRoute />}>
         <Route path="/app" element={<AppShell />}>
           <Route path="new-meeting" element={<NewMeetingPage />} />
+          <Route path="meetings/:id" element={<AnalysisReviewPage />} />
           <Route path="history" element={<MeetingHistoryPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>

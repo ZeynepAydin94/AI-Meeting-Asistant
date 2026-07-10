@@ -1,9 +1,13 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using AiMeetingAssistant.Api.Extensions;
 using AiMeetingAssistant.Core.Dtos.Auth;
+using AiMeetingAssistant.Core.Dtos.Meetings;
+using AiMeetingAssistant.Core.Entities;
 using AiMeetingAssistant.Core.Services;
 using AiMeetingAssistant.Infrastructure.Auth;
+using AiMeetingAssistant.Infrastructure.Claude;
 using AiMeetingAssistant.Infrastructure.Data;
 using AiMeetingAssistant.Infrastructure.Identity;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -62,6 +66,12 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
+builder.Services.AddHttpClient<IAnthropicClient, AnthropicClient>(client =>
+{
+    client.BaseAddress = new Uri("https://api.anthropic.com/");
+});
+builder.Services.AddScoped<IMeetingAnalysisService, MeetingAnalysisService>();
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -111,4 +121,117 @@ auth.MapGet("/me", (ClaimsPrincipal user) =>
     return Results.Ok(new { email });
 }).RequireAuthorization();
 
+var meetings = app.MapGroup("/api/meetings").RequireAuthorization();
+
+meetings.MapPost("/", async (
+    CreateMeetingRequest request,
+    ClaimsPrincipal user,
+    AppDbContext db,
+    IMeetingAnalysisService analysisService) =>
+{
+    if (string.IsNullOrWhiteSpace(request.TranscriptText))
+    {
+        return Results.BadRequest(new { message = "Transcript text is required." });
+    }
+
+    var meeting = new Meeting
+    {
+        Id = Guid.NewGuid(),
+        UserId = user.GetUserId(),
+        Title = "Untitled meeting",
+        CreatedAtUtc = DateTime.UtcNow,
+        OriginalTranscriptText = request.TranscriptText,
+        Status = MeetingStatus.Analyzing,
+    };
+
+    try
+    {
+        var analysis = await analysisService.AnalyzeAsync(request.TranscriptText);
+
+        meeting.Status = MeetingStatus.Analyzed;
+        meeting.Title = DeriveTitle(analysis.Summary);
+        meeting.SummaryText = analysis.Summary;
+        meeting.KeyDecisions = analysis.KeyDecisions
+            .Select(description => new KeyDecision { Id = Guid.NewGuid(), MeetingId = meeting.Id, Description = description })
+            .ToList();
+        meeting.ActionItems = analysis.ActionItems
+            .Select(item => new ActionItem
+            {
+                Id = Guid.NewGuid(),
+                MeetingId = meeting.Id,
+                Description = item.Description,
+                AssigneeHint = item.OwnerHint,
+                Priority = Enum.TryParse<ActionItemPriority>(item.Priority, ignoreCase: true, out var priority)
+                    ? priority
+                    : ActionItemPriority.Medium,
+                SuggestedForJira = item.RequiresJiraTicket,
+                SuggestedTicketTitle = item.SuggestedTicketTitle,
+                SuggestedTicketDescription = item.SuggestedTicketDescription,
+            })
+            .ToList();
+    }
+    catch (AnthropicApiException ex)
+    {
+        meeting.Status = MeetingStatus.Failed;
+        meeting.Title = "Analysis failed";
+        meeting.ErrorMessage = ex.Message;
+    }
+
+    db.Meetings.Add(meeting);
+    await db.SaveChangesAsync();
+
+    return meeting.Status == MeetingStatus.Failed
+        ? Results.UnprocessableEntity(new { message = meeting.ErrorMessage })
+        : Results.Ok(ToDetailDto(meeting));
+});
+
+meetings.MapGet("/", async (ClaimsPrincipal user, AppDbContext db) =>
+{
+    var userId = user.GetUserId();
+    var list = await db.Meetings
+        .Where(m => m.UserId == userId)
+        .OrderByDescending(m => m.CreatedAtUtc)
+        .Select(m => new MeetingSummaryDto(m.Id, m.Title, m.CreatedAtUtc, m.Status.ToString(), m.ActionItems.Count))
+        .ToListAsync();
+
+    return Results.Ok(list);
+});
+
+meetings.MapGet("/{id:guid}", async (Guid id, ClaimsPrincipal user, AppDbContext db) =>
+{
+    var userId = user.GetUserId();
+    var meeting = await db.Meetings
+        .Include(m => m.KeyDecisions)
+        .Include(m => m.ActionItems)
+        .FirstOrDefaultAsync(m => m.Id == id && m.UserId == userId);
+
+    return meeting is null ? Results.NotFound() : Results.Ok(ToDetailDto(meeting));
+});
+
 app.Run();
+
+static MeetingDetailDto ToDetailDto(Meeting meeting) => new(
+    meeting.Id,
+    meeting.Title,
+    meeting.CreatedAtUtc,
+    meeting.Status.ToString(),
+    meeting.SummaryText,
+    meeting.ErrorMessage,
+    meeting.KeyDecisions.Select(kd => new KeyDecisionDto(kd.Id, kd.Description)).ToList(),
+    meeting.ActionItems.Select(ai => new ActionItemDto(
+        ai.Id,
+        ai.Description,
+        ai.AssigneeHint,
+        ai.Priority.ToString(),
+        ai.SuggestedForJira,
+        ai.UserConfirmed,
+        ai.SuggestedTicketTitle,
+        ai.SuggestedTicketDescription)).ToList());
+
+static string DeriveTitle(string summary)
+{
+    var trimmed = summary.Trim();
+    var periodIndex = trimmed.IndexOf('.');
+    var candidate = periodIndex is > 10 and < 80 ? trimmed[..periodIndex] : trimmed;
+    return candidate.Length > 60 ? candidate[..60].TrimEnd() + "…" : candidate;
+}

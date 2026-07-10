@@ -14,10 +14,12 @@ export interface ActionItem {
   userConfirmed: boolean | null
   suggestedTicketTitle: string | null
   suggestedTicketDescription: string | null
+  dueDate: string | null
   jiraTicketStatus: 'Created' | 'Failed' | null
   jiraIssueKey: string | null
   jiraIssueUrl: string | null
   jiraErrorMessage: string | null
+  jiraAssignedDisplayName: string | null
 }
 
 export interface JiraTicketResult {
@@ -26,6 +28,7 @@ export interface JiraTicketResult {
   jiraIssueKey: string | null
   jiraIssueUrl: string | null
   errorMessage: string | null
+  assignedDisplayName: string | null
 }
 
 export interface MeetingDetail {

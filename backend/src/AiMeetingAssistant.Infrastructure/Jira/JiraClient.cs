@@ -36,6 +36,8 @@ public class JiraClient(HttpClient httpClient) : IJiraClient
         string issueType,
         string summary,
         string description,
+        DateOnly? dueDate = null,
+        string? assigneeAccountId = null,
         CancellationToken cancellationToken = default)
     {
         var requestBody = new JiraCreateIssueRequest(
@@ -46,7 +48,9 @@ public class JiraClient(HttpClient httpClient) : IJiraClient
                 new JiraDescriptionDoc(
                     "doc",
                     1,
-                    [new JiraDocParagraph("paragraph", [new JiraDocText("text", description)])])));
+                    [new JiraDocParagraph("paragraph", [new JiraDocText("text", description)])]),
+                dueDate?.ToString("yyyy-MM-dd"),
+                assigneeAccountId is null ? null : new JiraAssigneeRef(assigneeAccountId)));
 
         using var request = new HttpRequestMessage(HttpMethod.Post, CombineUrl(baseUrl, "/rest/api/3/issue"))
         {
@@ -68,6 +72,30 @@ public class JiraClient(HttpClient httpClient) : IJiraClient
         }
 
         return new JiraCreateIssueResult(false, null, null, await DescribeErrorAsync(response, cancellationToken));
+    }
+
+    public async Task<List<JiraUserSummary>> SearchUsersAsync(
+        string baseUrl,
+        string email,
+        string apiToken,
+        string query,
+        CancellationToken cancellationToken = default)
+    {
+        var url = CombineUrl(baseUrl, $"/rest/api/3/user/search?query={Uri.EscapeDataString(query)}");
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = BuildAuthHeader(email, apiToken);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return [];
+        }
+
+        var results = await response.Content.ReadFromJsonAsync<List<JiraUserSearchResult>>(cancellationToken: cancellationToken);
+        return (results ?? [])
+            .Where(u => u.AccountType == "atlassian")
+            .Select(u => new JiraUserSummary(u.AccountId, u.DisplayName))
+            .ToList();
     }
 
     private static AuthenticationHeaderValue BuildAuthHeader(string email, string apiToken)

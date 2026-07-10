@@ -13,10 +13,12 @@ public record ActionItemDto(
     bool? UserConfirmed,
     string? SuggestedTicketTitle,
     string? SuggestedTicketDescription,
+    DateOnly? DueDate,
     string? JiraTicketStatus,
     string? JiraIssueKey,
     string? JiraIssueUrl,
-    string? JiraErrorMessage);
+    string? JiraErrorMessage,
+    string? JiraAssignedDisplayName);
 
 public record MeetingSummaryDto(
     Guid Id,

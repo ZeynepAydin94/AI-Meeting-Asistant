@@ -174,6 +174,7 @@ meetings.MapPost("/", async (
                 SuggestedForJira = item.RequiresJiraTicket,
                 SuggestedTicketTitle = item.SuggestedTicketTitle,
                 SuggestedTicketDescription = item.SuggestedTicketDescription,
+                DueDate = item.DueDate,
             })
             .ToList();
     }
@@ -250,11 +251,29 @@ meetings.MapPost("/{id:guid}/jira-tickets", async (
         var item = meeting.ActionItems.FirstOrDefault(ai => ai.Id == actionItemId);
         if (item is null)
         {
-            results.Add(new JiraTicketResultDto(actionItemId, false, null, null, "Action item not found."));
+            results.Add(new JiraTicketResultDto(actionItemId, false, null, null, "Action item not found.", null));
             continue;
         }
 
         item.UserConfirmed = true;
+
+        string? assigneeAccountId = null;
+        string? assigneeDisplayName = null;
+        if (!string.IsNullOrWhiteSpace(item.AssigneeHint))
+        {
+            var matches = await jiraClient.SearchUsersAsync(
+                settings.JiraBaseUrl,
+                settings.JiraEmail,
+                settings.JiraApiToken,
+                item.AssigneeHint);
+
+            // Only auto-assign on an unambiguous single match — guessing wrong is worse than leaving it unassigned.
+            if (matches.Count == 1)
+            {
+                assigneeAccountId = matches[0].AccountId;
+                assigneeDisplayName = matches[0].DisplayName;
+            }
+        }
 
         var createResult = await jiraClient.CreateIssueAsync(
             settings.JiraBaseUrl,
@@ -263,7 +282,9 @@ meetings.MapPost("/{id:guid}/jira-tickets", async (
             settings.JiraDefaultProjectKey,
             settings.JiraDefaultIssueType,
             item.SuggestedTicketTitle ?? item.Description,
-            item.SuggestedTicketDescription ?? item.Description);
+            item.SuggestedTicketDescription ?? item.Description,
+            item.DueDate,
+            assigneeAccountId);
 
         db.JiraTickets.Add(new JiraTicket
         {
@@ -273,10 +294,17 @@ meetings.MapPost("/{id:guid}/jira-tickets", async (
             JiraIssueKey = createResult.IssueKey,
             JiraIssueUrl = createResult.IssueUrl,
             ErrorMessage = createResult.ErrorMessage,
+            AssignedDisplayName = createResult.Success ? assigneeDisplayName : null,
             CreatedAtUtc = DateTime.UtcNow,
         });
 
-        results.Add(new JiraTicketResultDto(item.Id, createResult.Success, createResult.IssueKey, createResult.IssueUrl, createResult.ErrorMessage));
+        results.Add(new JiraTicketResultDto(
+            item.Id,
+            createResult.Success,
+            createResult.IssueKey,
+            createResult.IssueUrl,
+            createResult.ErrorMessage,
+            createResult.Success ? assigneeDisplayName : null));
     }
 
     await db.SaveChangesAsync();
@@ -359,10 +387,12 @@ static MeetingDetailDto ToDetailDto(Meeting meeting) => new(
             ai.UserConfirmed,
             ai.SuggestedTicketTitle,
             ai.SuggestedTicketDescription,
+            ai.DueDate,
             latestTicket?.Status.ToString(),
             latestTicket?.JiraIssueKey,
             latestTicket?.JiraIssueUrl,
-            latestTicket?.ErrorMessage);
+            latestTicket?.ErrorMessage,
+            latestTicket?.AssignedDisplayName);
     }).ToList());
 
 static SettingsResponse ToSettingsResponse(AppSettings? settings) => new(

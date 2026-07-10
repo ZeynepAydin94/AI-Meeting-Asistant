@@ -8,6 +8,7 @@ using AiMeetingAssistant.Infrastructure.Jira;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
 const string FrontendCorsPolicy = "FrontendCorsPolicy";
@@ -41,22 +42,27 @@ builder.Services.AddIdentityCore<AppUser>(options =>
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
 builder.Services.AddSingleton<ITokenService, JwtTokenService>();
 
-var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
-    ?? throw new InvalidOperationException("Jwt configuration section is missing.");
-
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+    .AddJwtBearer();
+
+// Configured via the options pipeline (IOptions<JwtOptions>) rather than a raw config snapshot, so
+// token validation always reads the same settings JwtTokenService used to create the token — a raw
+// snapshot here previously went stale under WebApplicationFactory-based tests, where a config source
+// added after WebApplication.CreateBuilder() ran didn't retroactively apply to an eagerly-read local.
+builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+    .Configure<IOptions<JwtOptions>>((bearerOptions, jwtOptions) =>
     {
-        options.MapInboundClaims = false;
-        options.TokenValidationParameters = new TokenValidationParameters
+        var options = jwtOptions.Value;
+        bearerOptions.MapInboundClaims = false;
+        bearerOptions.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
             ValidateAudience = true,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer = jwtOptions.Issuer,
-            ValidAudience = jwtOptions.Audience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.SigningKey)),
+            ValidIssuer = options.Issuer,
+            ValidAudience = options.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(options.SigningKey)),
         };
     });
 
@@ -85,3 +91,6 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+// Makes the implicit Program class visible to WebApplicationFactory<Program> in the test project.
+public partial class Program;

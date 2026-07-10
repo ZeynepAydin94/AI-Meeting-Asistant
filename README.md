@@ -2,6 +2,16 @@
 
 Paste a meeting transcript, get an AI-generated summary, key decisions, and action items, and turn the ones that need follow-up into real Jira tickets.
 
+## Screenshots
+
+| Analysis review | Meeting history |
+|---|---|
+| ![Analysis review page showing stat tiles, summary, key decisions, and action items with due dates and Jira assignment](docs/screenshots/03-analysis-review.png) | ![Meeting history list](docs/screenshots/04-history.png) |
+
+| New meeting | Settings | Login |
+|---|---|---|
+| ![New meeting page with transcript textarea](docs/screenshots/02-new-meeting.png) | ![Settings page for Claude and Jira configuration](docs/screenshots/05-settings.png) | ![Login page](docs/screenshots/01-login.png) |
+
 ## Stack
 
 - **Backend**: ASP.NET Core Web API (.NET 10), EF Core + PostgreSQL, ASP.NET Core Identity + JWT auth

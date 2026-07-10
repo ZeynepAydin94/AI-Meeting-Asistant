@@ -15,9 +15,10 @@ public class AnthropicClient(HttpClient httpClient, IConfiguration configuration
         string toolName,
         string toolDescription,
         object inputSchema,
+        string? apiKeyOverride = null,
         CancellationToken cancellationToken = default)
     {
-        var apiKey = configuration["Claude:ApiKey"];
+        var apiKey = string.IsNullOrWhiteSpace(apiKeyOverride) ? configuration["Claude:ApiKey"] : apiKeyOverride;
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             throw new AnthropicApiException("Claude API key is not configured.");

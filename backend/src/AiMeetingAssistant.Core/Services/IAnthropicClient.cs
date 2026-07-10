@@ -10,5 +10,6 @@ public interface IAnthropicClient
         string toolName,
         string toolDescription,
         object inputSchema,
+        string? apiKeyOverride = null,
         CancellationToken cancellationToken = default);
 }

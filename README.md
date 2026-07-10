@@ -24,7 +24,7 @@ docs/       plan/notes
 - Node.js 20+
 - PostgreSQL (local install, or via Docker: `docker run --name meeting-assistant-db -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=ai_meeting_assistant -p 5433:5432 -d postgres:16` — port 5433 is used here since 5432 may already be bound on your machine; adjust the connection string port to match whatever you use)
 - An Anthropic API key (for Claude analysis)
-- A Jira Cloud site, account email, and API token (for ticket creation) — configured later, from the app's Settings page
+- A Jira Cloud site, account email, and API token (for ticket creation) — enter these on the app's Settings page after logging in, or set them via the API (see below)
 
 ## Running locally
 
@@ -43,7 +43,9 @@ API listens on `http://localhost:5130` by default (see `Properties/launchSetting
 
 Auth endpoints: `POST /api/auth/register`, `POST /api/auth/login` (both return a JWT), `GET /api/auth/me` (requires `Authorization: Bearer <token>`).
 
-To use transcript analysis, also set your Claude API key: `dotnet user-secrets set "Claude:ApiKey" "sk-ant-..." --project src/AiMeetingAssistant.Api`. Meeting endpoints: `POST /api/meetings` (analyzes a transcript), `GET /api/meetings`, `GET /api/meetings/{id}` — all require `Authorization: Bearer <token>`.
+To use transcript analysis, set a fallback Claude API key: `dotnet user-secrets set "Claude:ApiKey" "sk-ant-..." --project src/AiMeetingAssistant.Api`. Individual users can also save their own Claude key from the Settings page, which takes priority over this fallback. Meeting endpoints: `POST /api/meetings` (analyzes a transcript), `GET /api/meetings`, `GET /api/meetings/{id}`, `POST /api/meetings/{id}/jira-tickets` — all require `Authorization: Bearer <token>`.
+
+Settings endpoints (all per-user, require `Authorization: Bearer <token>`): `GET/PUT /api/settings` (Claude key, Jira base URL/email/API token/default project key/default issue type — secrets are write-only and masked on read), `POST /api/settings/test-jira-connection`.
 
 ### Frontend
 
@@ -58,9 +60,9 @@ App runs on `http://localhost:5173` and talks to the API via `VITE_API_BASE_URL`
 
 ## Status
 
-Actively being built in phases — see [docs/plan.md](docs/plan.md) for the full build plan.
+Core build plan complete — see [docs/plan.md](docs/plan.md) for the full build plan.
 
 - [x] Phase 0: scaffold
 - [x] Phase 1: auth (ASP.NET Core Identity + JWT), app shell, login/register UI
 - [x] Phase 2: transcript → Claude analysis → review UI (verified live against the Anthropic API)
-- [ ] Phase 3: settings + Jira ticket creation
+- [x] Phase 3: settings + Jira ticket creation (verified live against a real Jira Cloud site)

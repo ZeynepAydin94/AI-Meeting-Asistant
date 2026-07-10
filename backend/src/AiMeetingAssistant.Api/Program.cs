@@ -3,13 +3,16 @@ using System.Security.Claims;
 using System.Text;
 using AiMeetingAssistant.Api.Extensions;
 using AiMeetingAssistant.Core.Dtos.Auth;
+using AiMeetingAssistant.Core.Dtos.Jira;
 using AiMeetingAssistant.Core.Dtos.Meetings;
+using AiMeetingAssistant.Core.Dtos.Settings;
 using AiMeetingAssistant.Core.Entities;
 using AiMeetingAssistant.Core.Services;
 using AiMeetingAssistant.Infrastructure.Auth;
 using AiMeetingAssistant.Infrastructure.Claude;
 using AiMeetingAssistant.Infrastructure.Data;
 using AiMeetingAssistant.Infrastructure.Identity;
+using AiMeetingAssistant.Infrastructure.Jira;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -71,6 +74,8 @@ builder.Services.AddHttpClient<IAnthropicClient, AnthropicClient>(client =>
     client.BaseAddress = new Uri("https://api.anthropic.com/");
 });
 builder.Services.AddScoped<IMeetingAnalysisService, MeetingAnalysisService>();
+
+builder.Services.AddHttpClient<IJiraClient, JiraClient>();
 
 var app = builder.Build();
 
@@ -134,10 +139,11 @@ meetings.MapPost("/", async (
         return Results.BadRequest(new { message = "Transcript text is required." });
     }
 
+    var userId = user.GetUserId();
     var meeting = new Meeting
     {
         Id = Guid.NewGuid(),
-        UserId = user.GetUserId(),
+        UserId = userId,
         Title = "Untitled meeting",
         CreatedAtUtc = DateTime.UtcNow,
         OriginalTranscriptText = request.TranscriptText,
@@ -146,7 +152,8 @@ meetings.MapPost("/", async (
 
     try
     {
-        var analysis = await analysisService.AnalyzeAsync(request.TranscriptText);
+        var userSettings = await db.AppSettings.FirstOrDefaultAsync(s => s.UserId == userId);
+        var analysis = await analysisService.AnalyzeAsync(request.TranscriptText, userSettings?.ClaudeApiKey);
 
         meeting.Status = MeetingStatus.Analyzed;
         meeting.Title = DeriveTitle(analysis.Summary);
@@ -202,10 +209,132 @@ meetings.MapGet("/{id:guid}", async (Guid id, ClaimsPrincipal user, AppDbContext
     var userId = user.GetUserId();
     var meeting = await db.Meetings
         .Include(m => m.KeyDecisions)
-        .Include(m => m.ActionItems)
+        .Include(m => m.ActionItems).ThenInclude(ai => ai.JiraTickets)
         .FirstOrDefaultAsync(m => m.Id == id && m.UserId == userId);
 
     return meeting is null ? Results.NotFound() : Results.Ok(ToDetailDto(meeting));
+});
+
+meetings.MapPost("/{id:guid}/jira-tickets", async (
+    Guid id,
+    CreateJiraTicketsRequest request,
+    ClaimsPrincipal user,
+    AppDbContext db,
+    IJiraClient jiraClient) =>
+{
+    var userId = user.GetUserId();
+    var meeting = await db.Meetings
+        .Include(m => m.ActionItems).ThenInclude(ai => ai.JiraTickets)
+        .FirstOrDefaultAsync(m => m.Id == id && m.UserId == userId);
+
+    if (meeting is null)
+    {
+        return Results.NotFound();
+    }
+
+    var settings = await db.AppSettings.FirstOrDefaultAsync(s => s.UserId == userId);
+    if (settings is null
+        || string.IsNullOrWhiteSpace(settings.JiraBaseUrl)
+        || string.IsNullOrWhiteSpace(settings.JiraEmail)
+        || string.IsNullOrWhiteSpace(settings.JiraApiToken)
+        || string.IsNullOrWhiteSpace(settings.JiraDefaultProjectKey)
+        || string.IsNullOrWhiteSpace(settings.JiraDefaultIssueType))
+    {
+        return Results.BadRequest(new { message = "Configure your Jira connection in Settings before creating tickets." });
+    }
+
+    var results = new List<JiraTicketResultDto>();
+
+    foreach (var actionItemId in request.ActionItemIds)
+    {
+        var item = meeting.ActionItems.FirstOrDefault(ai => ai.Id == actionItemId);
+        if (item is null)
+        {
+            results.Add(new JiraTicketResultDto(actionItemId, false, null, null, "Action item not found."));
+            continue;
+        }
+
+        item.UserConfirmed = true;
+
+        var createResult = await jiraClient.CreateIssueAsync(
+            settings.JiraBaseUrl,
+            settings.JiraEmail,
+            settings.JiraApiToken,
+            settings.JiraDefaultProjectKey,
+            settings.JiraDefaultIssueType,
+            item.SuggestedTicketTitle ?? item.Description,
+            item.SuggestedTicketDescription ?? item.Description);
+
+        db.JiraTickets.Add(new JiraTicket
+        {
+            Id = Guid.NewGuid(),
+            ActionItemId = item.Id,
+            Status = createResult.Success ? JiraTicketStatus.Created : JiraTicketStatus.Failed,
+            JiraIssueKey = createResult.IssueKey,
+            JiraIssueUrl = createResult.IssueUrl,
+            ErrorMessage = createResult.ErrorMessage,
+            CreatedAtUtc = DateTime.UtcNow,
+        });
+
+        results.Add(new JiraTicketResultDto(item.Id, createResult.Success, createResult.IssueKey, createResult.IssueUrl, createResult.ErrorMessage));
+    }
+
+    await db.SaveChangesAsync();
+
+    return Results.Ok(results);
+});
+
+var settingsGroup = app.MapGroup("/api/settings").RequireAuthorization();
+
+settingsGroup.MapGet("/", async (ClaimsPrincipal user, AppDbContext db) =>
+{
+    var settings = await db.AppSettings.FirstOrDefaultAsync(s => s.UserId == user.GetUserId());
+    return Results.Ok(ToSettingsResponse(settings));
+});
+
+settingsGroup.MapPut("/", async (UpdateSettingsRequest request, ClaimsPrincipal user, AppDbContext db) =>
+{
+    var userId = user.GetUserId();
+    var settings = await db.AppSettings.FirstOrDefaultAsync(s => s.UserId == userId);
+    if (settings is null)
+    {
+        settings = new AppSettings { Id = Guid.NewGuid(), UserId = userId };
+        db.AppSettings.Add(settings);
+    }
+
+    if (!string.IsNullOrWhiteSpace(request.ClaudeApiKey))
+    {
+        settings.ClaudeApiKey = request.ClaudeApiKey;
+    }
+
+    settings.JiraBaseUrl = request.JiraBaseUrl;
+    settings.JiraEmail = request.JiraEmail;
+    settings.JiraDefaultProjectKey = request.JiraDefaultProjectKey;
+    settings.JiraDefaultIssueType = request.JiraDefaultIssueType;
+
+    if (!string.IsNullOrWhiteSpace(request.JiraApiToken))
+    {
+        settings.JiraApiToken = request.JiraApiToken;
+    }
+
+    await db.SaveChangesAsync();
+
+    return Results.Ok(ToSettingsResponse(settings));
+});
+
+settingsGroup.MapPost("/test-jira-connection", async (ClaimsPrincipal user, AppDbContext db, IJiraClient jiraClient) =>
+{
+    var settings = await db.AppSettings.FirstOrDefaultAsync(s => s.UserId == user.GetUserId());
+    if (settings is null
+        || string.IsNullOrWhiteSpace(settings.JiraBaseUrl)
+        || string.IsNullOrWhiteSpace(settings.JiraEmail)
+        || string.IsNullOrWhiteSpace(settings.JiraApiToken))
+    {
+        return Results.Ok(new JiraConnectionTestResult(false, "Jira base URL, email, and API token are all required."));
+    }
+
+    var result = await jiraClient.TestConnectionAsync(settings.JiraBaseUrl, settings.JiraEmail, settings.JiraApiToken);
+    return Results.Ok(result);
 });
 
 app.Run();
@@ -218,15 +347,31 @@ static MeetingDetailDto ToDetailDto(Meeting meeting) => new(
     meeting.SummaryText,
     meeting.ErrorMessage,
     meeting.KeyDecisions.Select(kd => new KeyDecisionDto(kd.Id, kd.Description)).ToList(),
-    meeting.ActionItems.Select(ai => new ActionItemDto(
-        ai.Id,
-        ai.Description,
-        ai.AssigneeHint,
-        ai.Priority.ToString(),
-        ai.SuggestedForJira,
-        ai.UserConfirmed,
-        ai.SuggestedTicketTitle,
-        ai.SuggestedTicketDescription)).ToList());
+    meeting.ActionItems.Select(ai =>
+    {
+        var latestTicket = ai.JiraTickets.OrderByDescending(t => t.CreatedAtUtc).FirstOrDefault();
+        return new ActionItemDto(
+            ai.Id,
+            ai.Description,
+            ai.AssigneeHint,
+            ai.Priority.ToString(),
+            ai.SuggestedForJira,
+            ai.UserConfirmed,
+            ai.SuggestedTicketTitle,
+            ai.SuggestedTicketDescription,
+            latestTicket?.Status.ToString(),
+            latestTicket?.JiraIssueKey,
+            latestTicket?.JiraIssueUrl,
+            latestTicket?.ErrorMessage);
+    }).ToList());
+
+static SettingsResponse ToSettingsResponse(AppSettings? settings) => new(
+    !string.IsNullOrEmpty(settings?.ClaudeApiKey),
+    settings?.JiraBaseUrl,
+    settings?.JiraEmail,
+    !string.IsNullOrEmpty(settings?.JiraApiToken),
+    settings?.JiraDefaultProjectKey,
+    settings?.JiraDefaultIssueType);
 
 static string DeriveTitle(string summary)
 {

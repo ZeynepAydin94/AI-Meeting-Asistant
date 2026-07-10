@@ -10,6 +10,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<Meeting> Meetings => Set<Meeting>();
     public DbSet<KeyDecision> KeyDecisions => Set<KeyDecision>();
     public DbSet<ActionItem> ActionItems => Set<ActionItem>();
+    public DbSet<JiraTicket> JiraTickets => Set<JiraTicket>();
+    public DbSet<AppSettings> AppSettings => Set<AppSettings>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -31,6 +33,20 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         builder.Entity<ActionItem>(entity =>
         {
             entity.Property(ai => ai.Priority).HasConversion<string>();
+            entity.HasMany(ai => ai.JiraTickets)
+                .WithOne()
+                .HasForeignKey(t => t.ActionItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<JiraTicket>(entity =>
+        {
+            entity.Property(t => t.Status).HasConversion<string>();
+        });
+
+        builder.Entity<AppSettings>(entity =>
+        {
+            entity.HasIndex(s => s.UserId).IsUnique();
         });
     }
 }

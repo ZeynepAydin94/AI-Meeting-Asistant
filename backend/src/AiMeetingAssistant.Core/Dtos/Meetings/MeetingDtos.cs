@@ -12,7 +12,11 @@ public record ActionItemDto(
     bool SuggestedForJira,
     bool? UserConfirmed,
     string? SuggestedTicketTitle,
-    string? SuggestedTicketDescription);
+    string? SuggestedTicketDescription,
+    string? JiraTicketStatus,
+    string? JiraIssueKey,
+    string? JiraIssueUrl,
+    string? JiraErrorMessage);
 
 public record MeetingSummaryDto(
     Guid Id,

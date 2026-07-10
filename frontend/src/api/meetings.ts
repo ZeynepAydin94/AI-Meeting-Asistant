@@ -14,6 +14,18 @@ export interface ActionItem {
   userConfirmed: boolean | null
   suggestedTicketTitle: string | null
   suggestedTicketDescription: string | null
+  jiraTicketStatus: 'Created' | 'Failed' | null
+  jiraIssueKey: string | null
+  jiraIssueUrl: string | null
+  jiraErrorMessage: string | null
+}
+
+export interface JiraTicketResult {
+  actionItemId: string
+  success: boolean
+  jiraIssueKey: string | null
+  jiraIssueUrl: string | null
+  errorMessage: string | null
 }
 
 export interface MeetingDetail {
@@ -48,4 +60,11 @@ export function listMeetings(): Promise<MeetingSummary[]> {
 
 export function getMeeting(id: string): Promise<MeetingDetail> {
   return apiFetch<MeetingDetail>(`/api/meetings/${id}`)
+}
+
+export function createJiraTickets(meetingId: string, actionItemIds: string[]): Promise<JiraTicketResult[]> {
+  return apiFetch<JiraTicketResult[]>(`/api/meetings/${meetingId}/jira-tickets`, {
+    method: 'POST',
+    body: JSON.stringify({ actionItemIds }),
+  })
 }

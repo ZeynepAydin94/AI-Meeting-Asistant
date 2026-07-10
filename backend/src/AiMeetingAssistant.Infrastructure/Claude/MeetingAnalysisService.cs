@@ -60,7 +60,7 @@ public class MeetingAnalysisService(IAnthropicClient anthropicClient) : IMeeting
         PropertyNameCaseInsensitive = true,
     };
 
-    public async Task<MeetingAnalysisResult> AnalyzeAsync(string transcriptText, CancellationToken cancellationToken = default)
+    public async Task<MeetingAnalysisResult> AnalyzeAsync(string transcriptText, string? apiKeyOverride = null, CancellationToken cancellationToken = default)
     {
         var toolInput = await anthropicClient.InvokeToolAsync(
             SystemPrompt,
@@ -68,6 +68,7 @@ public class MeetingAnalysisService(IAnthropicClient anthropicClient) : IMeeting
             ToolName,
             "Records the structured analysis of a meeting transcript.",
             InputSchema,
+            apiKeyOverride,
             cancellationToken);
 
         var result = toolInput.Deserialize<MeetingAnalysisResult>(DeserializeOptions);

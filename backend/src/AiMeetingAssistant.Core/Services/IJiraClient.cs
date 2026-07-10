@@ -18,5 +18,14 @@ public interface IJiraClient
         string issueType,
         string summary,
         string description,
+        DateOnly? dueDate = null,
+        string? assigneeAccountId = null,
+        CancellationToken cancellationToken = default);
+
+    Task<List<JiraUserSummary>> SearchUsersAsync(
+        string baseUrl,
+        string email,
+        string apiToken,
+        string query,
         CancellationToken cancellationToken = default);
 }

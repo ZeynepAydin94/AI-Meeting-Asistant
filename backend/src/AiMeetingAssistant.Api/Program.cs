@@ -174,6 +174,7 @@ meetings.MapPost("/", async (
                 SuggestedForJira = item.RequiresJiraTicket,
                 SuggestedTicketTitle = item.SuggestedTicketTitle,
                 SuggestedTicketDescription = item.SuggestedTicketDescription,
+                DueDate = item.DueDate,
             })
             .ToList();
     }
@@ -256,6 +257,22 @@ meetings.MapPost("/{id:guid}/jira-tickets", async (
 
         item.UserConfirmed = true;
 
+        string? assigneeAccountId = null;
+        if (!string.IsNullOrWhiteSpace(item.AssigneeHint))
+        {
+            var matches = await jiraClient.SearchUsersAsync(
+                settings.JiraBaseUrl,
+                settings.JiraEmail,
+                settings.JiraApiToken,
+                item.AssigneeHint);
+
+            // Only auto-assign on an unambiguous single match — guessing wrong is worse than leaving it unassigned.
+            if (matches.Count == 1)
+            {
+                assigneeAccountId = matches[0].AccountId;
+            }
+        }
+
         var createResult = await jiraClient.CreateIssueAsync(
             settings.JiraBaseUrl,
             settings.JiraEmail,
@@ -263,7 +280,9 @@ meetings.MapPost("/{id:guid}/jira-tickets", async (
             settings.JiraDefaultProjectKey,
             settings.JiraDefaultIssueType,
             item.SuggestedTicketTitle ?? item.Description,
-            item.SuggestedTicketDescription ?? item.Description);
+            item.SuggestedTicketDescription ?? item.Description,
+            item.DueDate,
+            assigneeAccountId);
 
         db.JiraTickets.Add(new JiraTicket
         {
@@ -359,6 +378,7 @@ static MeetingDetailDto ToDetailDto(Meeting meeting) => new(
             ai.UserConfirmed,
             ai.SuggestedTicketTitle,
             ai.SuggestedTicketDescription,
+            ai.DueDate,
             latestTicket?.Status.ToString(),
             latestTicket?.JiraIssueKey,
             latestTicket?.JiraIssueUrl,

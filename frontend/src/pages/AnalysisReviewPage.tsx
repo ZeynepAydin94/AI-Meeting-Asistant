@@ -11,6 +11,46 @@ const priorityStyles: Record<ActionItem['priority'], { bg: string; text: string 
   Low: { bg: 'var(--surface-1)', text: 'var(--text-secondary)' },
 }
 
+function formatDueDate(isoDate: string): string {
+  const [year, month, day] = isoDate.split('-').map(Number)
+  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
+function StatTile({
+  label,
+  value,
+  subtitle,
+  tone = 'neutral',
+}: {
+  label: string
+  value: number
+  subtitle?: string
+  tone?: 'neutral' | 'attention'
+}) {
+  return (
+    <div style={{ background: 'var(--surface-1)', borderRadius: 8, padding: '0.75rem 1rem' }}>
+      <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 4px' }}>{label}</p>
+      <p
+        style={{
+          fontSize: 24,
+          fontWeight: 500,
+          margin: 0,
+          color: tone === 'attention' && value > 0 ? 'var(--danger-text)' : 'var(--text-primary)',
+        }}
+      >
+        {value}
+        {subtitle && (
+          <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--text-secondary)' }}> {subtitle}</span>
+        )}
+      </p>
+    </div>
+  )
+}
+
 export function AnalysisReviewPage() {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
@@ -74,12 +114,25 @@ export function AnalysisReviewPage() {
     (item) => selectedIds.has(item.id) && item.jiraTicketStatus !== 'Created',
   ).length
 
+  const attentionCount = meeting.actionItems.filter(
+    (item) => item.priority === 'Urgent' || item.priority === 'High',
+  ).length
+  const ticketsSuggestedCount = meeting.actionItems.filter((item) => item.suggestedForJira).length
+  const ticketsCreatedCount = meeting.actionItems.filter((item) => item.jiraTicketStatus === 'Created').length
+
   return (
     <div style={{ maxWidth: 640 }}>
       <h2>{meeting.title}</h2>
       <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: '1rem' }}>
         Analyzed {new Date(meeting.createdAtUtc).toLocaleString()}
       </p>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginBottom: '1rem' }}>
+        <StatTile label="Action items" value={meeting.actionItems.length} />
+        <StatTile label="Key decisions" value={meeting.keyDecisions.length} />
+        <StatTile label="Needs attention" value={attentionCount} tone="attention" />
+        <StatTile label="Tickets created" value={ticketsCreatedCount} subtitle={`/ ${ticketsSuggestedCount}`} />
+      </div>
 
       <div className="card" style={{ marginBottom: '1rem' }}>
         <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>Summary</p>
@@ -129,9 +182,11 @@ export function AnalysisReviewPage() {
               />
               <div style={{ flex: 1 }}>
                 <p style={{ fontSize: 14, margin: 0 }}>{item.description}</p>
-                {item.assigneeHint && (
+                {(item.assigneeHint || item.dueDate) && (
                   <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
-                    Owner hint: {item.assigneeHint}
+                    {item.assigneeHint && <>Owner hint: {item.assigneeHint}</>}
+                    {item.assigneeHint && item.dueDate && ' · '}
+                    {item.dueDate && <>Due {formatDueDate(item.dueDate)}</>}
                   </p>
                 )}
                 {isCreated && item.jiraIssueUrl && (

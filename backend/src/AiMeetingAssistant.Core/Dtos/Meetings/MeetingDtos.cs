@@ -13,6 +13,7 @@ public record ActionItemDto(
     bool? UserConfirmed,
     string? SuggestedTicketTitle,
     string? SuggestedTicketDescription,
+    DateOnly? DueDate,
     string? JiraTicketStatus,
     string? JiraIssueKey,
     string? JiraIssueUrl,

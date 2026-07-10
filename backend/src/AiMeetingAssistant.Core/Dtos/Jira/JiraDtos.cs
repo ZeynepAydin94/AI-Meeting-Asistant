@@ -7,3 +7,5 @@ public record JiraCreateIssueResult(bool Success, string? IssueKey, string? Issu
 public record CreateJiraTicketsRequest(List<Guid> ActionItemIds);
 
 public record JiraTicketResultDto(Guid ActionItemId, bool Success, string? JiraIssueKey, string? JiraIssueUrl, string? ErrorMessage);
+
+public record JiraUserSummary(string AccountId, string? DisplayName);

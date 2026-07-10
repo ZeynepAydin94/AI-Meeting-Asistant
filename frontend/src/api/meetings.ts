@@ -14,6 +14,7 @@ export interface ActionItem {
   userConfirmed: boolean | null
   suggestedTicketTitle: string | null
   suggestedTicketDescription: string | null
+  dueDate: string | null
   jiraTicketStatus: 'Created' | 'Failed' | null
   jiraIssueKey: string | null
   jiraIssueUrl: string | null

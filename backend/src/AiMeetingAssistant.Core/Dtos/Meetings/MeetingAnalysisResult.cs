@@ -6,7 +6,8 @@ public record ActionItemAnalysis(
     string Priority,
     bool RequiresJiraTicket,
     string? SuggestedTicketTitle,
-    string? SuggestedTicketDescription);
+    string? SuggestedTicketDescription,
+    DateOnly? DueDate);
 
 public record MeetingAnalysisResult(
     string Summary,

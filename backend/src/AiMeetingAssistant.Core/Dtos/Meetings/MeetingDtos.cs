@@ -17,7 +17,8 @@ public record ActionItemDto(
     string? JiraTicketStatus,
     string? JiraIssueKey,
     string? JiraIssueUrl,
-    string? JiraErrorMessage);
+    string? JiraErrorMessage,
+    string? JiraAssignedDisplayName);
 
 public record MeetingSummaryDto(
     Guid Id,

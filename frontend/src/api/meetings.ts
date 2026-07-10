@@ -19,6 +19,7 @@ export interface ActionItem {
   jiraIssueKey: string | null
   jiraIssueUrl: string | null
   jiraErrorMessage: string | null
+  jiraAssignedDisplayName: string | null
 }
 
 export interface JiraTicketResult {
@@ -27,6 +28,7 @@ export interface JiraTicketResult {
   jiraIssueKey: string | null
   jiraIssueUrl: string | null
   errorMessage: string | null
+  assignedDisplayName: string | null
 }
 
 export interface MeetingDetail {

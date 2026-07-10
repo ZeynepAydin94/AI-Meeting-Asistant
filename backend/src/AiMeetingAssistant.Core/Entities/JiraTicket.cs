@@ -14,5 +14,6 @@ public class JiraTicket
     public string? JiraIssueKey { get; set; }
     public string? JiraIssueUrl { get; set; }
     public string? ErrorMessage { get; set; }
+    public string? AssignedDisplayName { get; set; }
     public DateTime CreatedAtUtc { get; set; }
 }

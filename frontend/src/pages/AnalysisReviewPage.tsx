@@ -190,10 +190,15 @@ export function AnalysisReviewPage() {
                   </p>
                 )}
                 {isCreated && item.jiraIssueUrl && (
-                  <p style={{ fontSize: 12, margin: '4px 0 0' }}>
+                  <p style={{ fontSize: 12, margin: '4px 0 0', color: 'var(--text-secondary)' }}>
                     <a href={item.jiraIssueUrl} target="_blank" rel="noreferrer">
                       View {item.jiraIssueKey} in Jira
                     </a>
+                    {item.jiraAssignedDisplayName ? (
+                      <> · Assigned to {item.jiraAssignedDisplayName}</>
+                    ) : item.assigneeHint ? (
+                      <> · Not auto-assigned (no matching Jira user for "{item.assigneeHint}")</>
+                    ) : null}
                   </p>
                 )}
                 {item.jiraTicketStatus === 'Failed' && (

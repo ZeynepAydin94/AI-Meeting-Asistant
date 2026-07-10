@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using AiMeetingAssistant.Core.Dtos.Meetings;
 using AiMeetingAssistant.Core.Services;
 
@@ -23,6 +24,9 @@ public class MeetingAnalysisService(IAnthropicClient anthropicClient) : IMeeting
         If a deadline is mentioned for an action item, set due_date to an absolute date in
         YYYY-MM-DD format. Resolve relative dates (e.g. "by Friday", "next week", "end of month")
         against today's date above. Omit due_date entirely if no deadline is mentioned or implied.
+
+        key_decisions must be a flat array of plain strings — one sentence per decision, not
+        objects and not nested fields.
         """;
 
     private static readonly object InputSchema = new
@@ -77,7 +81,60 @@ public class MeetingAnalysisService(IAnthropicClient anthropicClient) : IMeeting
             apiKeyOverride,
             cancellationToken);
 
-        var result = toolInput.Deserialize<MeetingAnalysisResult>(DeserializeOptions);
-        return result ?? throw new AnthropicApiException("Claude returned an empty analysis.");
+        try
+        {
+            var normalized = NormalizeKeyDecisions(toolInput);
+            var result = normalized.Deserialize<MeetingAnalysisResult>(DeserializeOptions);
+            return result ?? throw new AnthropicApiException("Claude returned an empty analysis.");
+        }
+        catch (JsonException ex)
+        {
+            throw new AnthropicApiException($"Claude returned an analysis in an unexpected format: {ex.Message}");
+        }
+    }
+
+    // Claude sometimes returns key_decisions as objects (e.g. { "decision": "...", "owner": "..." })
+    // instead of the plain strings the schema asks for. Flatten those so a formatting slip
+    // doesn't fail the whole analysis.
+    private static JsonElement NormalizeKeyDecisions(JsonElement toolInput)
+    {
+        var node = JsonNode.Parse(toolInput.GetRawText());
+        if (node?["key_decisions"] is not JsonArray decisions)
+        {
+            return toolInput;
+        }
+
+        for (var i = 0; i < decisions.Count; i++)
+        {
+            if (decisions[i] is not JsonObject obj)
+            {
+                continue;
+            }
+
+            decisions[i] = JsonValue.Create(FlattenToString(obj));
+        }
+
+        return JsonSerializer.SerializeToElement(node);
+    }
+
+    private static string FlattenToString(JsonObject obj)
+    {
+        foreach (var key in new[] { "decision", "text", "description", "summary", "title" })
+        {
+            if (obj[key] is JsonValue value && value.TryGetValue<string>(out var s))
+            {
+                return s;
+            }
+        }
+
+        foreach (var property in obj)
+        {
+            if (property.Value is JsonValue value && value.TryGetValue<string>(out var s))
+            {
+                return s;
+            }
+        }
+
+        return obj.ToJsonString();
     }
 }
